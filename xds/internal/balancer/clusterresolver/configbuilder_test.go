@@ -290,8 +290,7 @@ func TestBuildPriorityConfig(t *testing.T) {
 						ChildPolicy: &iserviceconfig.BalancerConfig{
 							Name: clusterimpl.Name,
 							Config: &clusterimpl.LBConfig{
-								Cluster:     testClusterName2,
-								ChildPolicy: &iserviceconfig.BalancerConfig{Name: "pick_first"},
+								Cluster: testClusterName2,
 							},
 						},
 					},
@@ -307,13 +306,10 @@ func TestBuildPriorityConfig(t *testing.T) {
 }
 
 func TestBuildClusterImplConfigForDNS(t *testing.T) {
-	gotName, gotConfig, gotEndpoints := buildClusterImplConfigForDNS(newNameGenerator(3), testResolverEndpoints[0], DiscoveryMechanism{Cluster: testClusterName2, Type: DiscoveryMechanismTypeLogicalDNS})
+	gotName, gotConfig, gotEndpoints := buildClusterImplConfigForDNS(newNameGenerator(3), testResolverEndpoints[0], DiscoveryMechanism{Cluster: testClusterName2, Type: DiscoveryMechanismTypeLogicalDNS}, nil)
 	wantName := "priority-3"
 	wantConfig := &clusterimpl.LBConfig{
 		Cluster: testClusterName2,
-		ChildPolicy: &iserviceconfig.BalancerConfig{
-			Name: "pick_first",
-		},
 	}
 	e1 := resolver.Endpoint{Addresses: []resolver.Address{{Addr: testEndpoints[0][0].Addresses[0]}}}
 	e2 := resolver.Endpoint{Addresses: []resolver.Address{{Addr: testEndpoints[0][1].Addresses[0]}}}
