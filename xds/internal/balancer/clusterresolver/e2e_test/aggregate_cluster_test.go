@@ -310,7 +310,7 @@ func hostAndPortFromAddress(t *testing.T, addr string) (string, uint32) {
 // cluster resource is an aggregate cluster that resolves to a single
 // LOGICAL_DNS cluster. The test verifies that RPCs can be made to backends that
 // make up the LOGICAL_DNS cluster.
-func (s) TestAggregateCluster_WithOneDNSCluster(t *testing.T) {
+func TestAggregateCluster_WithOneDNSCluster(t *testing.T) {
 	// Start an xDS management server.
 	managementServer := e2e.StartManagementServer(t, e2e.ManagementServerOptions{AllowResourceSubset: true})
 
