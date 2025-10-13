@@ -22,11 +22,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-	"net/url"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc"
@@ -133,7 +133,7 @@ func expectedNodeJSON(ipv6Capable bool) []byte {
 // GCE. The test builds a google-c2p resolver and verifies that an xDS resolver
 // is built and that we don't fallback to DNS (because federation is enabled by
 // default).
-func TestBuildWithBootstrapEnvSet(t *testing.T) {
+func (s) TestBuildWithBootstrapEnvSet(t *testing.T) {
 	replaceResolvers(t)
 	simulateRunningOnGCE(t, true)
 	useCleanUniverseDomain(t)
@@ -159,7 +159,7 @@ func TestBuildWithBootstrapEnvSet(t *testing.T) {
 			defer r.Close()
 
 			// Build should return xDS, not DNS.
-			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver  {
+			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver {
 				t.Fatalf("Build() returned %#v, want c2pResolverWrapper", r)
 			}
 		})
@@ -203,7 +203,7 @@ func bootstrapConfig(t *testing.T, opts bootstrap.ConfigOptionsForTesting) *boot
 
 // Test that when a google-c2p resolver is built, the xDS client is built with
 // the expected config.
-func TestBuildXDS(t *testing.T) {
+func (s) TestBuildXDS(t *testing.T) {
 	replaceResolvers(t)
 	simulateRunningOnGCE(t, true)
 	useCleanUniverseDomain(t)
@@ -324,7 +324,7 @@ func TestBuildXDS(t *testing.T) {
 			defer r.Close()
 
 			// Build should return xDS, not DNS.
-			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver  {
+			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver {
 				t.Fatalf("Build() returned %#v, want c2pResolverWrapper", r)
 			}
 
@@ -339,7 +339,7 @@ func TestBuildXDS(t *testing.T) {
 	}
 }
 
-func TestBuildXDSWithConfig(t *testing.T) {
+func (s) TestBuildXDSWithConfig(t *testing.T) {
 	replaceResolvers(t)
 	simulateRunningOnGCE(t, true)
 	useCleanUniverseDomain(t)
@@ -453,7 +453,7 @@ func TestBuildXDSWithConfig(t *testing.T) {
 			defer func() { getIPv6Capable = oldGetIPv6Capability }()
 
 			// Build the google-c2p resolver.
-                        target := resolver.Target{URL: url.URL{Scheme: c2pScheme, Path: "test-path"}}
+			target := resolver.Target{URL: url.URL{Scheme: c2pScheme, Path: "test-path"}}
 			r, err := builder.Build(target, nil, resolver.BuildOptions{})
 			if err != nil {
 				t.Fatalf("failed to build resolver: %v", err)
@@ -461,18 +461,18 @@ func TestBuildXDSWithConfig(t *testing.T) {
 			defer r.Close()
 
 			// Build should return xDS, not DNS.
-			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver  {
+			if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver {
 				t.Fatalf("Build() returned %#v, want c2pResolverWrapper", r)
 			}
 
 			xdsTarget := resolver.Target{URL: url.URL{Scheme: xdsName, Host: c2pAuthority, Path: target.URL.Path}}
-	client, close, err := xdsClientPool.GetClientForTesting(xdsTarget.String())
-	if err != nil {
-		t.Fatalf("Failed to get xds client: %v", err)
-	}
-	defer close()
+			client, close, err := xdsClientPool.GetClientForTesting(xdsTarget.String())
+			if err != nil {
+				t.Fatalf("Failed to get xds client: %v", err)
+			}
+			defer close()
 
-	gotConfig := client.BootstrapConfig()
+			gotConfig := client.BootstrapConfig()
 			if gotConfig == nil {
 				t.Fatalf("Failed to get bootstrap config: %v", err)
 			}
@@ -486,7 +486,7 @@ func TestBuildXDSWithConfig(t *testing.T) {
 // TestDialFailsWhenTargetContainsAuthority attempts to Dial a target URI of
 // google-c2p scheme with a non-empty authority and verifies that it fails with
 // an expected error.
-func TestBuildFailsWhenCalledWithAuthority(t *testing.T) {
+func (s) TestBuildFailsWhenCalledWithAuthority(t *testing.T) {
 	useCleanUniverseDomain(t)
 	uri := "google-c2p://an-authority/resource"
 	cc, err := grpc.NewClient(uri, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -569,7 +569,7 @@ func (s) TestSetUniverseDomainNonDefault(t *testing.T) {
 	defer r.Close()
 
 	// Build should return xDS, not DNS.
-	if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver  {
+	if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver {
 		t.Fatalf("Build() returned %#v, want c2pResolverWrapper", r)
 	}
 
@@ -638,7 +638,7 @@ func (s) TestDefaultUniverseDomain(t *testing.T) {
 	defer r.Close()
 
 	// Build should return xDS, not DNS.
-	if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver  {
+	if r, ok := r.(*c2pResolverWrapper); !ok || r.Resolver != testXDSResolver {
 		t.Fatalf("Build() returned %#v, want c2pResolverWrapper", r)
 	}
 

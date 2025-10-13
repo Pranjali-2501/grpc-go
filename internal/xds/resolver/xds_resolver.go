@@ -51,7 +51,7 @@ const Scheme = "xds"
 // the provided config and a new xDS client in that pool.
 func newBuilderWithConfigForTesting(config []byte) (resolver.Builder, error) {
 	return &xdsResolverBuilder{
-		newXDSClient: func(name string, mr estats.MetricsRecorder, bConfig *bootstrap.Config) (xdsclient.XDSClient, func(), error) {
+		newXDSClient: func(name string, mr estats.MetricsRecorder, _ *bootstrap.Config) (xdsclient.XDSClient, func(), error) {
 			config, err := bootstrap.NewConfigFromContents(config)
 			if err != nil {
 				return nil, nil, err
@@ -74,7 +74,7 @@ func newBuilderWithPoolForTesting(pool *xdsclient.Pool) (resolver.Builder, error
 			return pool.NewClientForTesting(xdsclient.OptionsForTesting{
 				Name:            name,
 				MetricsRecorder: mr,
-				Config: config,
+				Config:          config,
 			})
 		},
 	}, nil

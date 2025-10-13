@@ -65,7 +65,7 @@ func Test(t *testing.T) {
 // Then it sets the env var XDSBootstrapFileName and retry creating a client
 // in DefaultPool. This should succeed.
 func (s) TestDefaultPool_LazyLoadBootstrapConfig(t *testing.T) {
-	_, closeFunc, err := xdsclient.DefaultPool.NewClient(t.Name(), &stats.NoopMetricsRecorder{})
+	_, closeFunc, err := xdsclient.DefaultPool.NewClient(t.Name(), &stats.NoopMetricsRecorder{}, nil)
 	if err == nil {
 		t.Fatalf("xdsclient.DefaultPool.NewClient() succeeded without setting bootstrap config env vars, want failure")
 	}
@@ -93,7 +93,7 @@ func (s) TestDefaultPool_LazyLoadBootstrapConfig(t *testing.T) {
 	// state to make it re-read the env vars during next client creation.
 	xdsclient.DefaultPool.UnsetBootstrapConfigForTesting()
 
-	_, closeFunc, err = xdsclient.DefaultPool.NewClient(t.Name(), &stats.NoopMetricsRecorder{})
+	_, closeFunc, err = xdsclient.DefaultPool.NewClient(t.Name(), &stats.NoopMetricsRecorder{}, nil)
 	if err != nil {
 		t.Fatalf("Failed to create xDS client: %v", err)
 	}
