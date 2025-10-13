@@ -119,6 +119,16 @@ func getXdsServerURI() string {
 	return fmt.Sprintf("dns:///directpath-pa.%s", universeDomain)
 }
 
+type c2pResolverWrapper struct {
+	resolver.Resolver
+	cancel func()
+}
+
+func (r *c2pResolverWrapper) Close() {
+	r.Resolver.Close()
+	r.cancel()
+}
+
 type c2pResolverBuilder struct{}
 
 func (c2pResolverBuilder) Build(t resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
@@ -170,7 +180,17 @@ func (c2pResolverBuilder) Build(t resolver.Target, cc resolver.ClientConn, opts 
 			Path:   t.URL.Path,
 		},
 	}
-	return resolver.Get(xdsName).Build(t, cc, opts)
+	_, cancel, err := xdsClientPool.NewClient(t.String(), opts.MetricsRecorder, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create xds client: %v", err)
+	}
+
+	r, err := resolver.Get(xdsName).Build(t, cc, opts)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	return &c2pResolverWrapper{Resolver: r, cancel: cancel}, nil
 }
 
 func (b c2pResolverBuilder) Scheme() string {

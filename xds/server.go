@@ -103,7 +103,7 @@ func NewGRPCServer(opts ...grpc.ServerOption) (*GRPCServer, error) {
 	if s.opts.clientPoolForTesting != nil {
 		pool = s.opts.clientPoolForTesting
 	}
-	xdsClient, xdsClientClose, err := pool.NewClient(xdsclient.NameForServer, mrl)
+	xdsClient, xdsClientClose, err := pool.NewClient(xdsclient.NameForServer, mrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("xDS client creation failed: %v", err)
 	}
