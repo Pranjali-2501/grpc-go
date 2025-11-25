@@ -26,7 +26,6 @@ import (
 	rand "math/rand/v2"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	xxhash "github.com/cespare/xxhash/v2"
 	"google.golang.org/grpc/codes"
@@ -34,7 +33,6 @@ import (
 	iresolver "google.golang.org/grpc/internal/resolver"
 	iringhash "google.golang.org/grpc/internal/ringhash"
 	"google.golang.org/grpc/internal/serviceconfig"
-	"google.golang.org/grpc/internal/wrr"
 	"google.golang.org/grpc/internal/xds/balancer/clustermanager"
 	"google.golang.org/grpc/internal/xds/httpfilter"
 	"google.golang.org/grpc/internal/xds/xdsclient/xdsresource"
@@ -110,20 +108,17 @@ type routeCluster struct {
 	httpFilterConfigOverride map[string]httpfilter.FilterConfig
 }
 
-type route struct {
-	m                 *xdsresource.CompositeMatcher // converted from route matchers
-	actionType        xdsresource.RouteActionType   // holds route action type
-	clusters          wrr.WRR                       // holds *routeCluster entries
-	maxStreamDuration time.Duration
-	// map from filter name to its config
-	httpFilterConfigOverride map[string]httpfilter.FilterConfig
-	retryConfig              *xdsresource.RetryConfig
-	hashPolicies             []*xdsresource.HashPolicy
-}
-
-func (r route) String() string {
-	return fmt.Sprintf("%s -> { clusters: %v, maxStreamDuration: %v }", r.m.String(), r.clusters, r.maxStreamDuration)
-}
+// type matchedRoute struct {
+// 	m                 *xdsresource.CompositeMatcher // converted from route matchers
+// 	actionType        xdsresource.RouteActionType   // holds route action type
+// 	clusters          wrr.WRR                       // holds *routeCluster entries
+// 	maxStreamDuration time.Duration
+// 	// map from filter name to its config
+// 	httpFilterConfigOverride map[string]httpfilter.FilterConfig
+// 	retryConfig              *xdsresource.RetryConfig
+// 	hashPolicies             []*xdsresource.HashPolicy
+// 	autoHostRewrite          bool
+// }
 
 // stoppableConfigSelector extends the iresolver.ConfigSelector interface with a
 // stop() method. This makes it possible to swap the current config selector
@@ -157,7 +152,7 @@ type configSelector struct {
 
 	// Configuration received from the xDS management server.
 	virtualHost      virtualHost
-	routes           []route
+	routes           []xdsresource.MatchedRoute
 	clusters         map[string]*clusterInfo
 	httpFilterConfig []xdsresource.HTTPFilter
 }
@@ -173,24 +168,24 @@ func annotateErrorWithNodeID(err error, nodeID string) error {
 }
 
 func (cs *configSelector) SelectConfig(rpcInfo iresolver.RPCInfo) (*iresolver.RPCConfig, error) {
-	var rt *route
+	var rt *xdsresource.MatchedRoute
 	// Loop through routes in order and select first match.
 	for _, r := range cs.routes {
-		if r.m.Match(rpcInfo) {
+		if r.M.Match(rpcInfo) {
 			rt = &r
 			break
 		}
 	}
 
-	if rt == nil || rt.clusters == nil {
+	if rt == nil || rt.Clusters == nil {
 		return nil, annotateErrorWithNodeID(errNoMatchedRouteFound, cs.xdsNodeID)
 	}
 
-	if rt.actionType != xdsresource.RouteActionRoute {
+	if rt.ActionType != xdsresource.RouteActionRoute {
 		return nil, annotateErrorWithNodeID(errUnsupportedClientRouteAction, cs.xdsNodeID)
 	}
 
-	cluster, ok := rt.clusters.Next().(*routeCluster)
+	cluster, ok := rt.Clusters.Next().(*routeCluster)
 	if !ok {
 		return nil, annotateErrorWithNodeID(status.Errorf(codes.Internal, "error retrieving cluster for match: %v (%T)", cluster, cluster), cs.xdsNodeID)
 	}
@@ -206,7 +201,8 @@ func (cs *configSelector) SelectConfig(rpcInfo iresolver.RPCInfo) (*iresolver.RP
 	}
 
 	lbCtx := clustermanager.SetPickedCluster(rpcInfo.Context, cluster.name)
-	lbCtx = iringhash.SetXDSRequestHash(lbCtx, cs.generateHash(rpcInfo, rt.hashPolicies))
+	lbCtx = iringhash.SetXDSRequestHash(lbCtx, cs.generateHash(rpcInfo, rt.HashPolicies))
+	lbCtx = xdsresource.SetMatchedRoute(lbCtx, *rt)
 
 	config := &iresolver.RPCConfig{
 		// Communicate to the LB policy the chosen cluster and request hash, if Ring Hash LB policy.
@@ -223,11 +219,11 @@ func (cs *configSelector) SelectConfig(rpcInfo iresolver.RPCInfo) (*iresolver.RP
 		Interceptor: interceptor,
 	}
 
-	if rt.maxStreamDuration != 0 {
-		config.MethodConfig.Timeout = &rt.maxStreamDuration
+	if rt.MaxStreamDuration != 0 {
+		config.MethodConfig.Timeout = &rt.MaxStreamDuration
 	}
-	if rt.retryConfig != nil {
-		config.MethodConfig.RetryPolicy = retryConfigToPolicy(rt.retryConfig)
+	if rt.RetryConfig != nil {
+		config.MethodConfig.RetryPolicy = retryConfigToPolicy(rt.RetryConfig)
 	} else if cs.virtualHost.retryConfig != nil {
 		config.MethodConfig.RetryPolicy = retryConfigToPolicy(cs.virtualHost.retryConfig)
 	}
@@ -310,7 +306,7 @@ func (cs *configSelector) generateHash(rpcInfo iresolver.RPCInfo, hashPolicies [
 	return rand.Uint64()
 }
 
-func (cs *configSelector) newInterceptor(rt *route, cluster *routeCluster) (iresolver.ClientInterceptor, error) {
+func (cs *configSelector) newInterceptor(rt *xdsresource.MatchedRoute, cluster *routeCluster) (iresolver.ClientInterceptor, error) {
 	if len(cs.httpFilterConfig) == 0 {
 		return nil, nil
 	}
@@ -318,7 +314,7 @@ func (cs *configSelector) newInterceptor(rt *route, cluster *routeCluster) (ires
 	for _, filter := range cs.httpFilterConfig {
 		override := cluster.httpFilterConfigOverride[filter.Name] // cluster is highest priority
 		if override == nil {
-			override = rt.httpFilterConfigOverride[filter.Name] // route is second priority
+			override = rt.HttpFilterConfigOverride[filter.Name] // route is second priority
 		}
 		if override == nil {
 			override = cs.virtualHost.httpFilterConfigOverride[filter.Name] // VH is third & lowest priority

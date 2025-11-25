@@ -46,6 +46,7 @@ type LBConfig struct {
 	// TelemetryLabels are the telemetry Labels associated with this cluster.
 	TelemetryLabels map[string]string                     `json:"telemetryLabels,omitempty"`
 	ChildPolicy     *internalserviceconfig.BalancerConfig `json:"childPolicy,omitempty"`
+	Hostname        string
 }
 
 func parseConfig(c json.RawMessage) (*LBConfig, error) {

@@ -147,7 +147,12 @@ func buildClusterImplConfigForDNS(g *nameGenerator, endpoints []resolver.Endpoin
 		retEndpoints[i] = hierarchy.SetInEndpoint(e, []string{pName})
 		// Copy the nested address field as slice fields are shared by the
 		// iteration variable and the original slice.
-		retEndpoints[i].Addresses = append([]resolver.Address{}, e.Addresses...)
+		// retEndpoints[i].Addresses = append([]resolver.Address{}, e.Addresses...)
+		resolverEndpoint := resolver.Endpoint{}
+		for _, as := range e.Addresses {
+			resolverEndpoint.Addresses = append(resolverEndpoint.Addresses, resolver.Address{Addr: as.Addr, ServerName: mechanism.DNSHostname})
+		}
+		retEndpoints[i] = resolverEndpoint
 	}
 	return pName, &clusterimpl.LBConfig{
 		Cluster:               mechanism.Cluster,
@@ -267,7 +272,7 @@ func priorityLocalitiesToClusterImpl(localities []xdsresource.Locality, priority
 			}
 			resolverEndpoint := resolver.Endpoint{}
 			for _, as := range endpoint.Addresses {
-				resolverEndpoint.Addresses = append(resolverEndpoint.Addresses, resolver.Address{Addr: as})
+				resolverEndpoint.Addresses = append(resolverEndpoint.Addresses, resolver.Address{Addr: as, ServerName: endpoint.Hostname})
 			}
 			resolverEndpoint = hierarchy.SetInEndpoint(resolverEndpoint, []string{priorityName, localityStr})
 			resolverEndpoint = xdsinternal.SetLocalityIDInEndpoint(resolverEndpoint, locality.ID)

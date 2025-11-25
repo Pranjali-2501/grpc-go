@@ -31,6 +31,7 @@ import (
 	xdsinternal "google.golang.org/grpc/internal/xds"
 	"google.golang.org/grpc/internal/xds/clients"
 	"google.golang.org/grpc/internal/xds/xdsclient"
+	"google.golang.org/grpc/internal/xds/xdsclient/xdsresource"
 	"google.golang.org/grpc/status"
 )
 
@@ -145,6 +146,12 @@ func (d *picker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		// If locality ID isn't found in the wrapper, an empty locality ID will
 		// be used.
 		lID = scw.localityID()
+
+		route := xdsresource.GetMatchedRoute(info.Ctx)
+
+		if route.AutoHostRewrite {
+			pr.Metadata.Append(":authority", scw.hostname)
+		}
 	}
 
 	if err != nil {

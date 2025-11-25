@@ -203,7 +203,7 @@ func (s) TestResolverResourceName(t *testing.T) {
 // Tests the case where a service update from the underlying xDS client is
 // received after the resolver is closed, and verifies that the update is not
 // propagated to the ClientConn.
-func (s) TestResolverWatchCallbackAfterClose(t *testing.T) {
+func TestResolverWatchCallbackAfterClose(t *testing.T) {
 	// Setup the management server that synchronizes with the test goroutine
 	// using two channels. The management server signals the test goroutine when
 	// it receives a discovery request for a route configuration resource. And

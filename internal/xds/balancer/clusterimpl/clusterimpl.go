@@ -419,6 +419,8 @@ type scWrapper struct {
 	// locality needs to be atomic because it can be updated while being read by
 	// the picker.
 	locality atomic.Pointer[clients.Locality]
+
+	hostname string
 }
 
 func (scw *scWrapper) updateLocalityID(lID clients.Locality) {
@@ -441,6 +443,9 @@ func (b *clusterImplBalancer) NewSubConn(addrs []resolver.Address, opts balancer
 	}
 	var sc balancer.SubConn
 	scw := &scWrapper{}
+	if len(addrs) > 0 {
+		scw.hostname = addrs[0].ServerName
+	}
 	oldListener := opts.StateListener
 	opts.StateListener = func(state balancer.SubConnState) {
 		b.updateSubConnState(sc, state, oldListener)
