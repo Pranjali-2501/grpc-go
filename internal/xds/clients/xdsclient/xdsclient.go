@@ -197,7 +197,7 @@ func (c *XDSClient) Close() {
 	c.serializerClose()
 	<-c.serializer.Done()
 
-	c.logger.Infof("Shutdown")
+	// c.logger.Infof("Shutdown")
 }
 
 // getChannelForADS returns an xdsChannel for the given server configuration.
