@@ -139,7 +139,7 @@ func (xc *xdsChannel) close() {
 	xc.closed.Fire()
 	xc.ads.Stop()
 	xc.transport.Close()
-	xc.logger.Infof("Shutdown")
+	// xc.logger.Infof("Shutdown")
 }
 
 // subscribe adds a subscription for the given resource name of the given
