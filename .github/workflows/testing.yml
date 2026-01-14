@@ -39,7 +39,7 @@ jobs:
     # Use the matrix variable to set the runner, with 'ubuntu-latest' as the
     # default.
     runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -99,11 +99,11 @@ jobs:
         if: matrix.type == 'tests'
         run: |
           go version
-          go test ${{ matrix.testflags }} -cpu 1,4 -timeout 7m ./...
+          go test ${{ matrix.testflags }} -cpu 1,4 -timeout 60m -count 10000 -run ^Test/AggregatedClusterSuccess_SwitchBetweenLeafAndAggregate$ ./...
           cd "${GITHUB_WORKSPACE}"
           for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
             pushd "$(dirname ${MOD_FILE})"
-            go test ${{ matrix.testflags }} -cpu 1,4 -timeout 2m ./...
+            go test ${{ matrix.testflags }} -cpu 1,4 -timeout 60m -count 10000 -run ^Test/AggregatedClusterSuccess_SwitchBetweenLeafAndAggregate$ ./...
             popd
           done
 
