@@ -99,7 +99,7 @@ jobs:
         if: matrix.type == 'tests'
         run: |
           go version
-          go test -v ${{ matrix.testflags }} -cpu 1,4 -run "Test/Server_RedundantUpdateSuppression" -count 1000 -timeout 60m ./xds
+          go test -v ${{ matrix.testflags }} -cpu 1,4 -run "Test/Server_RedundantUpdateSuppression" -count 10000 -timeout 60m ./xds
 
       # Non-core gRPC tests (examples, interop, etc)
       - name: Run extras tests
