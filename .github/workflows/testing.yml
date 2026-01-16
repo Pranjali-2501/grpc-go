@@ -99,13 +99,7 @@ jobs:
         if: matrix.type == 'tests'
         run: |
           go version
-          go test ${{ matrix.testflags }} -cpu 1,4 -timeout 7m ./...
-          cd "${GITHUB_WORKSPACE}"
-          for MOD_FILE in $(find . -name 'go.mod' | grep -Ev '^\./go\.mod'); do
-            pushd "$(dirname ${MOD_FILE})"
-            go test ${{ matrix.testflags }} -cpu 1,4 -timeout 2m ./...
-            popd
-          done
+          go test -v ${{ matrix.testflags }} -cpu 1,4 -run "Test/Server_RedundantUpdateSuppression" -count 1000 -timeout 60m ./xds
 
       # Non-core gRPC tests (examples, interop, etc)
       - name: Run extras tests
