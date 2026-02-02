@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/internal/envconfig"
 	"google.golang.org/grpc/internal/xds/bootstrap"
 	xdsclient "google.golang.org/grpc/internal/xds/clients/xdsclient"
 	"google.golang.org/protobuf/proto"
@@ -175,7 +176,7 @@ func (fz *Fuzzer) handleReadMessage(op *ReadMessageFromClient) {
 	transport := fz.transportBuilder.GetTransport(authority)
 	if transport != nil && transport.ActiveAdsStream != nil {
 		// Just consume the request to clear queue/verify it exists
-		_, _ = transport.ActiveAdsStream.ReadRequest(time.Millisecond)
+		_, _ = transport.ActiveAdsStream.ReadRequest(2 * time.Second)
 	}
 }
 
@@ -203,7 +204,14 @@ func (w *fuzzWatcher) AmbientError(err error, done func()) {
 	}
 }
 
-func FuzzXdsClient(f *testing.F) {
+func  FuzzXdsClient(f *testing.F) {
+	// Enable crash recovery for the duration of the fuzz test.
+	// We set this globally before the fuzz loop to avoid race conditions
+	// that occur when using SetEnvConfig inside parallel fuzz iterations.
+	origRecover := envconfig.XDSRecoverPanic
+	envconfig.XDSRecoverPanic = false
+	defer func() { envconfig.XDSRecoverPanic = origRecover }()
+
 	// Add a valid seed input from C++ fuzzer
 
 	// (kBasicListener)
@@ -608,16 +616,6 @@ func FuzzXdsClient(f *testing.F) {
 		if err := proto.Unmarshal(data, scenario); err != nil {
 			return
 		}
-
-		// Ensure that we don't crash the fuzzer due to panics in the system under test.
-		// We expect the system to be robust, but for fuzzing stability, we catch panics.
-		defer func() {
-			if r := recover(); r != nil {
-				// We must fail the test so the fuzzer knows this input caused a crash.
-				// If we just log, the fuzzer considers it a pass.
-				t.Fatalf("Recovered from panic: %v", r)
-			}
-		}()
 
 		fz, err := NewFuzzer(t, scenario.Bootstrap)
 		if err != nil {
