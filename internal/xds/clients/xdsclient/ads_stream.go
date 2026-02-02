@@ -157,7 +157,7 @@ func (s *adsStreamImpl) Stop() {
 	s.cancel()
 	s.fc.stop()
 	<-s.runnerDoneCh
-	s.logger.Infof("Shutdown ADS stream")
+	// s.logger.Infof("Shutdown ADS stream")
 }
 
 // subscribe subscribes to the given resource. It is assumed that multiple

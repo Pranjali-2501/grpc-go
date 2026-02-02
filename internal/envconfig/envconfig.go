@@ -90,6 +90,9 @@ var (
 	// This feature is defined in gRFC A81 and is enabled by setting the
 	// environment variable GRPC_EXPERIMENTAL_XDS_AUTHORITY_REWRITE to "true".
 	XDSAuthorityRewrite = boolFromEnv("GRPC_EXPERIMENTAL_XDS_AUTHORITY_REWRITE", false)
+
+	// XDSRecoverPanic indicates whether the xDS resolver should recover from panics.
+	XDSRecoverPanic = boolFromEnv("GRPC_EXPERIMENTAL_XDS_RECOVER_PANIC", true)
 )
 
 func boolFromEnv(envVar string, def bool) bool {

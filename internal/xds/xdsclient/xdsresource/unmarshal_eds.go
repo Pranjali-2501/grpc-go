@@ -59,8 +59,15 @@ func Hostname(addr resolver.Address) string {
 	return hostname
 }
 
-func unmarshalEndpointsResource(r *anypb.Any) (string, EndpointsUpdate, error) {
-	r, err := UnwrapResource(r)
+func unmarshalEndpointsResource(r *anypb.Any) (name string, update EndpointsUpdate, err error) {
+	defer func() {
+		if envconfig.XDSRecoverPanic {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("xds: panic during EDS resource unmarshaling: %v", r)
+			}
+		}
+	}()
+	r, err = UnwrapResource(r)
 	if err != nil {
 		return "", EndpointsUpdate{}, fmt.Errorf("failed to unwrap resource: %v", err)
 	}
