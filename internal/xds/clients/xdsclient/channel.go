@@ -145,6 +145,7 @@ func (xc *xdsChannel) close() {
 // subscribe adds a subscription for the given resource name of the given
 // resource type on the ADS stream.
 func (xc *xdsChannel) subscribe(typ ResourceType, name string) {
+	fmt.Println("subscribe", typ.TypeName, name)
 	if xc.closed.HasFired() {
 		if xc.logger.V(2) {
 			xc.logger.Infof("Attempt to subscribe to an xDS resource of type %s and name %q on a closed channel", typ.TypeName, name)

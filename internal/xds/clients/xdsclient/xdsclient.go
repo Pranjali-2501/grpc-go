@@ -358,6 +358,7 @@ func (c *XDSClient) DumpResources() ([]byte, error) {
 		Node:              nodeProto,
 		GenericXdsConfigs: retCfg,
 	})
+	fmt.Println("dump resources: ", resp)
 	return proto.Marshal(resp)
 }
 

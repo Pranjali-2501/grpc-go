@@ -238,6 +238,7 @@ func (s *adsStreamImpl) runner(ctx context.Context) {
 	go s.send(ctx)
 
 	runStreamWithBackoff := func() error {
+		fmt.Println("Creating new stream")
 		stream, err := s.transport.NewStream(ctx, "/envoy.service.discovery.v3.AggregatedDiscoveryService/StreamAggregatedResources")
 		if err != nil {
 			s.logger.Warningf("Failed to create a new ADS streaming RPC: %v", err)
@@ -318,6 +319,7 @@ func (s *adsStreamImpl) send(ctx context.Context) {
 //
 // Caller needs to hold c.mu.
 func (s *adsStreamImpl) sendNewLocked(stream clients.Stream, requests []request) error {
+	fmt.Println("Send NewLocked")
 	for _, req := range requests {
 		state := s.resourceTypeState[req.typ]
 		if err := s.sendMessageLocked(stream, req.resourceNames, req.typ.TypeURL, state.version, state.nonce, nil); err != nil {
@@ -333,6 +335,7 @@ func (s *adsStreamImpl) sendNewLocked(stream clients.Stream, requests []request)
 //
 // The stream argument is guaranteed to be non-nil.
 func (s *adsStreamImpl) sendExisting(stream clients.Stream) error {
+	fmt.Println("Send Existing")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -425,6 +428,7 @@ func (s *adsStreamImpl) sendMessageLocked(stream clients.Stream, names []string,
 // It returns a boolean indicating whether at least one message was received
 // from the server.
 func (s *adsStreamImpl) recv(stream clients.Stream) bool {
+	fmt.Println("recv in ads_stream")
 	msgReceived := false
 	for {
 		// Wait for ADS stream level flow control to be available.
@@ -434,7 +438,6 @@ func (s *adsStreamImpl) recv(stream clients.Stream) bool {
 			}
 			return msgReceived
 		}
-
 		resources, url, version, nonce, err := s.recvMessage(stream)
 		if err != nil {
 			s.onError(err, msgReceived)
@@ -453,6 +456,7 @@ func (s *adsStreamImpl) recv(stream clients.Stream) bool {
 		var resourceNames []string
 		var nackErr error
 		s.fc.setPending(true)
+		fmt.Println("calling onResponse")
 		resourceNames, nackErr = s.eventHandler.onResponse(resp, sync.OnceFunc(func() { s.fc.setPending(false) }))
 		if xdsresource.ErrType(nackErr) == xdsresource.ErrorTypeResourceTypeUnsupported {
 			// A general guiding principle is that if the server sends
@@ -479,9 +483,11 @@ func (s *adsStreamImpl) recvMessage(stream clients.Stream) (resources []*anypb.A
 	}
 	var resp v3discoverypb.DiscoveryResponse
 	if err := proto.Unmarshal(r, &resp); err != nil {
+		fmt.Println("in recvMessage unmarshal error")
 		s.logger.Infof("Failed to unmarshal response to DiscoveryResponse: %v", err)
 		return nil, "", "", "", fmt.Errorf("unexpected message type %T", r)
 	}
+	fmt.Println("in recvMessage")
 	if s.logger.V(perRPCVerbosityLevel) {
 		s.logger.Infof("ADS response received: %v", pretty.ToJSON(&resp))
 	} else if s.logger.V(2) {
