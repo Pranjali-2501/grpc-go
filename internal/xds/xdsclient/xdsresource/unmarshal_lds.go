@@ -64,6 +64,7 @@ func unmarshalListenerResource(r *anypb.Any, opts *xdsclient.DecodeOptions) (nam
 }
 
 func processListener(lis *v3listenerpb.Listener, opts *xdsclient.DecodeOptions) (*ListenerUpdate, error) {
+	fmt.Println("processListener")
 	if lis.GetApiListener() != nil {
 		return processClientSideListener(lis, opts)
 	}

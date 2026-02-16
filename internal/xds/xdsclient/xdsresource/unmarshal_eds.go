@@ -59,6 +59,7 @@ func Hostname(addr resolver.Address) string {
 }
 
 func unmarshalEndpointsResource(r *anypb.Any) (name string, update EndpointsUpdate, err error) {
+	fmt.Println("unmarshalEndpointsResource")
 	defer func() {
 		if envconfig.XDSRecoverPanic {
 			if r := recover(); r != nil {

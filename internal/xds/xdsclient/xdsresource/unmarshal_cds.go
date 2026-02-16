@@ -52,6 +52,7 @@ var ValidateClusterAndConstructClusterUpdateForTesting = validateClusterAndConst
 const transportSocketName = "envoy.transport_sockets.tls"
 
 func unmarshalClusterResource(r *anypb.Any, serverCfg *bootstrap.ServerConfig) (name string, update ClusterUpdate, err error) {
+	fmt.Println("unmarshalClusterResource")
 	defer func() {
 		if envconfig.XDSRecoverPanic {
 			if r := recover(); r != nil {

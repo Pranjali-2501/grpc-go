@@ -37,6 +37,7 @@ import (
 )
 
 func unmarshalRouteConfigResource(r *anypb.Any, opts *xdsclient.DecodeOptions) (name string, update RouteConfigUpdate, err error) {
+	fmt.Println("unmarshalRouteConfigResource")
 	defer func() {
 		if envconfig.XDSRecoverPanic {
 			if r := recover(); r != nil {

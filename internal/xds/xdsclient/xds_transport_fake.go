@@ -56,9 +56,25 @@ func (b *FakeTransportBuilder) Build(serverIdentifier clients.ServerIdentifier) 
 
 // GetTransport returns the active transport for a given server URI.
 func (b *FakeTransportBuilder) GetTransport(serverURI string) *FakeTransport {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.ActiveTransports[serverURI]
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			b.mu.Lock()
+			if t, ok := b.ActiveTransports[serverURI]; ok && t.ActiveAdsStream != nil {
+				b.mu.Unlock()
+				return t
+			}
+			b.mu.Unlock()
+		}
+	}
 }
 
 // FakeTransport implements clients.Transport.
