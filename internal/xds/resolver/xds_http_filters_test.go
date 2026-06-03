@@ -185,7 +185,7 @@ type testFilterInterceptor struct {
 	calledOptionCh chan struct{}      // If set, a CallOption is appended and closed when executed
 }
 
-func (fi *testFilterInterceptor) NewStream(ctx context.Context, ri iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
+func (fi *testFilterInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
 	// Write the config to the channel, if set. This allows tests to verify that
 	// the filter was invoked at RPC time. This is useful for tests where the
 	// RPC is expected to fail, and therefore the RPC metadata cannot be
@@ -208,7 +208,7 @@ func (fi *testFilterInterceptor) NewStream(ctx context.Context, ri iresolver.RPC
 
 	modifiedOpts := opts
 	if fi.calledOptionCh != nil {
-		modifiedOpts = append(opts, grpc.OnFinish(func(err error) {
+		modifiedOpts = append(opts, grpc.OnFinish(func(error) {
 			close(fi.calledOptionCh)
 		}))
 	}
@@ -730,7 +730,7 @@ type trackingInterceptor struct {
 	basePath string
 }
 
-func (i *trackingInterceptor) NewStream(ctx context.Context, ri iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
+func (i *trackingInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
 	i.pathCh <- i.basePath
 	return newStream(ctx, done, opts)
 }
