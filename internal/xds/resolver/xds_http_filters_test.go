@@ -108,9 +108,10 @@ type logger interface {
 // by the backend, allowing tests to assert that the correct filter
 // configuration was applied for each RPC.
 type testHTTPFilterWithRPCMetadata struct {
-	logger        logger
-	typeURL       string
-	newStreamChan *testutils.Channel // If set, filter config is written to this field from NewStream()
+	logger         logger
+	typeURL        string
+	newStreamChan  *testutils.Channel // If set, filter config is written to this field from NewStream()
+	calledOptionCh chan struct{}      // If set, a CallOption is appended and closed when executed
 }
 
 func (fb *testHTTPFilterWithRPCMetadata) TypeURLs() []string { return []string{fb.typeURL} }
@@ -135,7 +136,7 @@ func (fb *testHTTPFilterWithRPCMetadata) Close() {}
 // compile time check ensures the test filter implements it.
 var _ httpfilter.ClientFilterBuilder = &testHTTPFilterWithRPCMetadata{}
 
-func (fb *testHTTPFilterWithRPCMetadata) BuildClientInterceptor(config, override httpfilter.FilterConfig) (iresolver.ClientInterceptor, error) {
+func (fb *testHTTPFilterWithRPCMetadata) BuildClientInterceptor(config, override httpfilter.FilterConfig) (httpfilter.ClientInterceptor, error) {
 	fb.logger.Logf("BuildClientInterceptor called with config: %+v, override: %+v", config, override)
 
 	if config == nil {
@@ -162,7 +163,8 @@ func (fb *testHTTPFilterWithRPCMetadata) BuildClientInterceptor(config, override
 			OverridePath: overridePath,
 			Error:        newStreamErr,
 		},
-		newStreamChan: fb.newStreamChan,
+		newStreamChan:  fb.newStreamChan,
+		calledOptionCh: fb.calledOptionCh,
 	}, nil
 }
 
@@ -177,12 +179,13 @@ type overallFilterConfig struct {
 // testFilterInterceptor is a client interceptor that injects RPC metadata
 // corresponding to its filter config.
 type testFilterInterceptor struct {
-	logger        logger
-	cfg           overallFilterConfig
-	newStreamChan *testutils.Channel // If set, filter config is written to this field from NewStream()
+	logger         logger
+	cfg            overallFilterConfig
+	newStreamChan  *testutils.Channel // If set, filter config is written to this field from NewStream()
+	calledOptionCh chan struct{}      // If set, a CallOption is appended and closed when executed
 }
 
-func (fi *testFilterInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, done func(), newStream func(ctx context.Context, done func()) (iresolver.ClientStream, error)) (iresolver.ClientStream, error) {
+func (fi *testFilterInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
 	// Write the config to the channel, if set. This allows tests to verify that
 	// the filter was invoked at RPC time. This is useful for tests where the
 	// RPC is expected to fail, and therefore the RPC metadata cannot be
@@ -203,7 +206,14 @@ func (fi *testFilterInterceptor) NewStream(ctx context.Context, _ iresolver.RPCI
 	cfg := string(bytes)
 	fi.logger.Logf("Injecting filter config metadata: %v", cfg)
 
-	return newStream(metadata.AppendToOutgoingContext(ctx, filterCfgMetadataKey, cfg), done)
+	modifiedOpts := opts
+	if fi.calledOptionCh != nil {
+		modifiedOpts = append(opts, grpc.OnFinish(func(error) {
+			close(fi.calledOptionCh)
+		}))
+	}
+
+	return newStream(metadata.AppendToOutgoingContext(ctx, filterCfgMetadataKey, cfg), done, modifiedOpts)
 }
 
 func (fi *testFilterInterceptor) Close() {}
@@ -698,7 +708,7 @@ func (t *trackingHTTPFilterBuilder) Close() {
 
 var _ httpfilter.ClientFilterBuilder = &trackingHTTPFilterBuilder{}
 
-func (t *trackingHTTPFilterBuilder) BuildClientInterceptor(config, _ httpfilter.FilterConfig) (iresolver.ClientInterceptor, error) {
+func (t *trackingHTTPFilterBuilder) BuildClientInterceptor(config, _ httpfilter.FilterConfig) (httpfilter.ClientInterceptor, error) {
 	t.interceptorsCreated.Add(1)
 
 	if config == nil {
@@ -720,9 +730,9 @@ type trackingInterceptor struct {
 	basePath string
 }
 
-func (i *trackingInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, done func(), newStream func(ctx context.Context, done func()) (iresolver.ClientStream, error)) (iresolver.ClientStream, error) {
+func (i *trackingInterceptor) NewStream(ctx context.Context, _ iresolver.RPCInfo, opts []grpc.CallOption, done func(), newStream func(ctx context.Context, done func(), opts []grpc.CallOption) (grpc.ClientStream, error)) (grpc.ClientStream, error) {
 	i.pathCh <- i.basePath
-	return newStream(ctx, done)
+	return newStream(ctx, done, opts)
 }
 
 func (i *trackingInterceptor) Close() {
@@ -1458,5 +1468,230 @@ func (s) TestXDSResolverHTTPFilters_EnabledInOverride(t *testing.T) {
 				t.Fatalf("Unexpected BasePath, got: %q, want: %q", got, want)
 			}
 		})
+	}
+}
+
+// Tests that if a filter appends a CallOption in its NewStream implementation,
+// it propagates to the main ClientConn.NewStream execution.
+func (s) TestXDSResolverHTTPFilters_CallOptionPropagation(t *testing.T) {
+	// Register a custom httpFilter builder.
+	testFilterName := t.Name()
+	calledch := make(chan struct{})
+	fb := &testHTTPFilterWithRPCMetadata{
+		logger:         t,
+		typeURL:        testFilterName,
+		calledOptionCh: calledch,
+	}
+	httpfilter.Register(fb)
+	defer httpfilter.UnregisterForTesting(fb.typeURL)
+
+	// Spin up an xDS management server
+	mgmtServer := e2e.StartManagementServer(t, e2e.ManagementServerOptions{AllowResourceSubset: true})
+	defer mgmtServer.Stop()
+
+	// Create an xDS resolver
+	nodeID := uuid.New().String()
+	bootstrapContents := e2e.DefaultBootstrapContents(t, nodeID, mgmtServer.Address)
+	resolverBuilder, err := internal.NewXDSResolverWithConfigForTesting.(func([]byte) (resolver.Builder, error))(bootstrapContents)
+	if err != nil {
+		t.Fatalf("Failed to create xDS resolver for testing: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+	defer cancel()
+	metadataCh := make(chan []string, 10)
+	backend := stubserver.StartTestService(t, newStubServer(metadataCh))
+	defer backend.Stop()
+
+	const testServiceName = "service-name"
+	const routeConfigName = "route-config"
+	listener := &v3listenerpb.Listener{
+		Name: testServiceName,
+		ApiListener: &v3listenerpb.ApiListener{
+			ApiListener: testutils.MarshalAny(t, &v3httppb.HttpConnectionManager{
+				RouteSpecifier: &v3httppb.HttpConnectionManager_RouteConfig{
+					RouteConfig: &v3routepb.RouteConfiguration{
+						Name: routeConfigName,
+						VirtualHosts: []*v3routepb.VirtualHost{{
+							Domains: []string{testServiceName},
+							Routes: []*v3routepb.Route{
+								{
+									Match: &v3routepb.RouteMatch{
+										PathSpecifier: &v3routepb.RouteMatch_Prefix{Prefix: "/grpc.testing.TestService/EmptyCall"},
+									},
+									Action: &v3routepb.Route_Route{
+										Route: &v3routepb.RouteAction{
+											ClusterSpecifier: &v3routepb.RouteAction_WeightedClusters{
+												WeightedClusters: &v3routepb.WeightedCluster{
+													Clusters: []*v3routepb.WeightedCluster_ClusterWeight{
+														{Name: "A", Weight: wrapperspb.UInt32(1)},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						}},
+					},
+				},
+				HttpFilters: []*v3httppb.HttpFilter{
+					newHTTPFilter(t, "option-appender", testFilterName, "option-appender", ""),
+					e2e.RouterHTTPFilter,
+				},
+			}),
+		},
+	}
+	resources := e2e.UpdateOptions{
+		NodeID:         nodeID,
+		Listeners:      []*v3listenerpb.Listener{listener},
+		Clusters:       []*v3clusterpb.Cluster{e2e.DefaultCluster("A", "endpoint_A", e2e.SecurityLevelNone)},
+		Endpoints:      []*v3endpointpb.ClusterLoadAssignment{e2e.DefaultEndpoint("endpoint_A", "localhost", []uint32{testutils.ParsePort(t, backend.Address)})},
+		SkipValidation: true,
+	}
+	if err := mgmtServer.Update(ctx, resources); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a gRPC client using the xDS resolver.
+	cc, err := grpc.NewClient("xds:///"+testServiceName, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithResolvers(resolverBuilder))
+	if err != nil {
+		t.Fatalf("Failed to create a gRPC client: %v", err)
+	}
+	defer cc.Close()
+
+	client := testgrpc.NewTestServiceClient(cc)
+	_, err = client.EmptyCall(ctx, &testpb.Empty{})
+	if err != nil {
+		t.Fatalf("EmptyCall() RPC failed unexpectedly: %v", err)
+	}
+
+	// Verify that our OnFinish callback was invoked.
+	select {
+	case <-calledch:
+	case <-ctx.Done():
+		t.Fatalf("OnFinish callback was not called")
+	}
+}
+
+// Tests that if multiple filters are present in the chain and both append a
+// CallOption in their NewStream implementations, both options are successfully
+// accumulated and present in the final CallOptions slice.
+func (s) TestXDSResolverHTTPFilters_MultiFilterCallOptionPropagation(t *testing.T) {
+	// Register two custom httpFilter builders.
+	testFilterName1 := t.Name() + "-1"
+	testFilterName2 := t.Name() + "-2"
+	calledch1 := make(chan struct{})
+	calledch2 := make(chan struct{})
+
+	fb1 := &testHTTPFilterWithRPCMetadata{
+		logger:         t,
+		typeURL:        testFilterName1,
+		calledOptionCh: calledch1,
+	}
+	httpfilter.Register(fb1)
+	defer httpfilter.UnregisterForTesting(fb1.typeURL)
+
+	fb2 := &testHTTPFilterWithRPCMetadata{
+		logger:         t,
+		typeURL:        testFilterName2,
+		calledOptionCh: calledch2,
+	}
+	httpfilter.Register(fb2)
+	defer httpfilter.UnregisterForTesting(fb2.typeURL)
+
+	// Spin up an xDS management server
+	mgmtServer := e2e.StartManagementServer(t, e2e.ManagementServerOptions{AllowResourceSubset: true})
+	defer mgmtServer.Stop()
+
+	// Create an xDS resolver
+	nodeID := uuid.New().String()
+	bootstrapContents := e2e.DefaultBootstrapContents(t, nodeID, mgmtServer.Address)
+	resolverBuilder, err := internal.NewXDSResolverWithConfigForTesting.(func([]byte) (resolver.Builder, error))(bootstrapContents)
+	if err != nil {
+		t.Fatalf("Failed to create xDS resolver for testing: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+	defer cancel()
+	metadataCh := make(chan []string, 10)
+	backend := stubserver.StartTestService(t, newStubServer(metadataCh))
+	defer backend.Stop()
+
+	const testServiceName = "service-name"
+	const routeConfigName = "route-config"
+	listener := &v3listenerpb.Listener{
+		Name: testServiceName,
+		ApiListener: &v3listenerpb.ApiListener{
+			ApiListener: testutils.MarshalAny(t, &v3httppb.HttpConnectionManager{
+				RouteSpecifier: &v3httppb.HttpConnectionManager_RouteConfig{
+					RouteConfig: &v3routepb.RouteConfiguration{
+						Name: routeConfigName,
+						VirtualHosts: []*v3routepb.VirtualHost{{
+							Domains: []string{testServiceName},
+							Routes: []*v3routepb.Route{
+								{
+									Match: &v3routepb.RouteMatch{
+										PathSpecifier: &v3routepb.RouteMatch_Prefix{Prefix: "/grpc.testing.TestService/EmptyCall"},
+									},
+									Action: &v3routepb.Route_Route{
+										Route: &v3routepb.RouteAction{
+											ClusterSpecifier: &v3routepb.RouteAction_WeightedClusters{
+												WeightedClusters: &v3routepb.WeightedCluster{
+													Clusters: []*v3routepb.WeightedCluster_ClusterWeight{
+														{Name: "A", Weight: wrapperspb.UInt32(1)},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						}},
+					},
+				},
+				HttpFilters: []*v3httppb.HttpFilter{
+					newHTTPFilter(t, "option-appender-1", testFilterName1, "option-appender-1", ""),
+					newHTTPFilter(t, "option-appender-2", testFilterName2, "option-appender-2", ""),
+					e2e.RouterHTTPFilter,
+				},
+			}),
+		},
+	}
+	resources := e2e.UpdateOptions{
+		NodeID:         nodeID,
+		Listeners:      []*v3listenerpb.Listener{listener},
+		Clusters:       []*v3clusterpb.Cluster{e2e.DefaultCluster("A", "endpoint_A", e2e.SecurityLevelNone)},
+		Endpoints:      []*v3endpointpb.ClusterLoadAssignment{e2e.DefaultEndpoint("endpoint_A", "localhost", []uint32{testutils.ParsePort(t, backend.Address)})},
+		SkipValidation: true,
+	}
+	if err := mgmtServer.Update(ctx, resources); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a gRPC client using the xDS resolver.
+	cc, err := grpc.NewClient("xds:///"+testServiceName, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithResolvers(resolverBuilder))
+	if err != nil {
+		t.Fatalf("Failed to create a gRPC client: %v", err)
+	}
+	defer cc.Close()
+
+	client := testgrpc.NewTestServiceClient(cc)
+	_, err = client.EmptyCall(ctx, &testpb.Empty{})
+	if err != nil {
+		t.Fatalf("EmptyCall() RPC failed unexpectedly: %v", err)
+	}
+
+	// Verify that both OnFinish callbacks were invoked.
+	select {
+	case <-calledch1:
+	case <-ctx.Done():
+		t.Fatalf("OnFinish callback 1 was not called")
+	}
+
+	select {
+	case <-calledch2:
+	case <-ctx.Done():
+		t.Fatalf("OnFinish callback 2 was not called")
 	}
 }
