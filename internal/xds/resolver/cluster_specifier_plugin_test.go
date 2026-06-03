@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer"
 	iresolver "google.golang.org/grpc/internal/resolver"
 	"google.golang.org/grpc/internal/testutils"
@@ -439,11 +440,11 @@ func (s) TestResolverClusterSpecifierPlugin_WithFilters(t *testing.T) {
 		t.Fatal("RPCInfo does not contain interceptors list")
 	}
 
-	newStream := func(context.Context, func(), []any) (iresolver.ClientStream, error) {
+	newStream := func(context.Context, func(), []grpc.CallOption) (grpc.ClientStream, error) {
 		return nil, nil
 	}
 
-	if _, err = res.Interceptor.NewStream(ctx, iresolver.RPCInfo{Method: "/service/method", Context: ctx}, nil, func() {}, newStream); err != nil {
+	if _, err = res.Interceptor.(httpfilter.ClientInterceptor).NewStream(ctx, iresolver.RPCInfo{Method: "/service/method", Context: ctx}, nil, func() {}, newStream); err != nil {
 		t.Fatalf("NewStream() failed with error: %v", err)
 	}
 
