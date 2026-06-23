@@ -25,9 +25,11 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/grpc/internal/resolver"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/internal/xds/httpfilter"
 	"google.golang.org/grpc/internal/xds/rbac"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -170,7 +172,7 @@ type serverFilter struct{}
 
 func (serverFilter) Close() {}
 
-func (serverFilter) BuildServerInterceptor(cfg httpfilter.FilterConfig, override httpfilter.FilterConfig) (resolver.ServerInterceptor, error) {
+func (serverFilter) BuildServerInterceptor(cfg httpfilter.FilterConfig, override httpfilter.FilterConfig) (httpfilter.ServerInterceptor, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("rbac: nil config provided")
 	}
@@ -204,8 +206,18 @@ type interceptor struct {
 	chainEngine *rbac.ChainEngine
 }
 
-func (i *interceptor) AllowRPC(ctx context.Context) error {
-	return i.chainEngine.IsAuthorized(ctx)
+func (i *interceptor) InterceptUnaryRPC(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if err := i.chainEngine.IsAuthorized(ctx); err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return handler(ctx, req)
+}
+
+func (i *interceptor) InterceptStreamRPC(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if err := i.chainEngine.IsAuthorized(ss.Context()); err != nil {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	return handler(srv, ss)
 }
 
 func (i *interceptor) Close() {}
