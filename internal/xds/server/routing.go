@@ -28,39 +28,36 @@ import (
 	"google.golang.org/grpc/codes"
 	iresolver "google.golang.org/grpc/internal/resolver"
 	"google.golang.org/grpc/internal/transport"
+	"google.golang.org/grpc/internal/xds/httpfilter"
 	"google.golang.org/grpc/internal/xds/xdsclient/xdsresource"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-// RouteAndProcess routes the incoming RPC to a configured route in the route
-// table and also processes the RPC by running the incoming RPC through any HTTP
-// Filters configured.
-func RouteAndProcess(ctx context.Context) error {
+// RouteAndGetInterceptor routes the incoming RPC to a configured route in the route
+// table and returns the matched route's ServerInterceptor.
+func RouteAndGetInterceptor(ctx context.Context) (httpfilter.ServerInterceptor, error) {
 	conn := transport.GetConnection(ctx)
 	cw, ok := conn.(*connWrapper)
 	if !ok {
-		return errors.New("missing virtual hosts in incoming context")
+		return nil, errors.New("missing virtual hosts in incoming context")
 	}
 
 	rc := cw.urc.Load()
-	// Error out at routing l7 level with a status code UNAVAILABLE, represents
-	// an nack before usable route configuration or resource not found for RDS
-	// or error combining LDS + RDS (Shouldn't happen).
 	if rc.err != nil {
 		if logger.V(2) {
 			logger.Infof("RPC on connection with xDS Configuration error: %v", rc.err)
 		}
-		return status.Error(codes.Unavailable, fmt.Sprintf("error from xDS configuration for matched route configuration: %v", rc.err))
+		return nil, status.Error(codes.Unavailable, fmt.Sprintf("error from xDS configuration for matched route configuration: %v", rc.err))
 	}
 
 	mn, ok := grpc.Method(ctx)
 	if !ok {
-		return errors.New("missing method name in incoming context")
+		return nil, errors.New("missing method name in incoming context")
 	}
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return errors.New("missing metadata in incoming context")
+		return nil, errors.New("missing metadata in incoming context")
 	}
 	// A41 added logic to the core grpc implementation to guarantee that once
 	// the RPC gets to this point, there will be a single, unambiguous authority
@@ -69,7 +66,7 @@ func RouteAndProcess(ctx context.Context) error {
 	// authority[0] is safe because of the guarantee mentioned above.
 	vh := findBestMatchingVirtualHostServer(authority[0], rc.vhs)
 	if vh == nil {
-		return rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC did not match a configured Virtual Host")
+		return nil, rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC did not match a configured Virtual Host")
 	}
 
 	var rwi *routeWithInterceptors
@@ -83,19 +80,16 @@ func RouteAndProcess(ctx context.Context) error {
 			// server-side; a route with an inappropriate action causes RPCs
 			// matching that route to fail with UNAVAILABLE." - A36
 			if r.actionType != xdsresource.RouteActionNonForwardingAction {
-				return rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC matched to a route that was not of action type non forwarding")
+				return nil, rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC matched to a route that was not of action type non forwarding")
 			}
 			rwi = &r
 			break
 		}
 	}
 	if rwi == nil {
-		return rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC did not match a configured Route")
+		return nil, rc.statusErrWithNodeID(codes.Unavailable, "the incoming RPC did not match a configured Route")
 	}
-	if err := rwi.interceptor.AllowRPC(ctx); err != nil {
-		return rc.statusErrWithNodeID(codes.PermissionDenied, "Incoming RPC is not allowed: %v", err)
-	}
-	return nil
+	return rwi.interceptor, nil
 }
 
 // findBestMatchingVirtualHostServer returns the virtual host whose domains field best
