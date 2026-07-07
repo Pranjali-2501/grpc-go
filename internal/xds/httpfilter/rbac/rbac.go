@@ -20,7 +20,6 @@
 package rbac
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -206,14 +205,7 @@ type interceptor struct {
 	chainEngine *rbac.ChainEngine
 }
 
-func (i *interceptor) InterceptUnaryRPC(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if err := i.chainEngine.IsAuthorized(ctx); err != nil {
-		return nil, status.Error(codes.PermissionDenied, err.Error())
-	}
-	return handler(ctx, req)
-}
-
-func (i *interceptor) InterceptStreamRPC(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+func (i *interceptor) InterceptRPC(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	if err := i.chainEngine.IsAuthorized(ss.Context()); err != nil {
 		return status.Error(codes.PermissionDenied, err.Error())
 	}

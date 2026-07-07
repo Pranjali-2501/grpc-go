@@ -18,7 +18,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -552,21 +551,7 @@ type interceptorList struct {
 	interceptors []httpfilter.ServerInterceptor
 }
 
-func (il *interceptorList) InterceptUnaryRPC(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	idx := 0
-	var next grpc.UnaryHandler
-	next = func(currCtx context.Context, currReq any) (any, error) {
-		if idx >= len(il.interceptors) {
-			return handler(currCtx, currReq)
-		}
-		i := il.interceptors[idx]
-		idx++
-		return i.InterceptUnaryRPC(currCtx, currReq, info, next)
-	}
-	return next(ctx, req)
-}
-
-func (il *interceptorList) InterceptStreamRPC(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+func (il *interceptorList) InterceptRPC(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	idx := 0
 	var next grpc.StreamHandler
 	next = func(currSrv any, currSS grpc.ServerStream) error {
@@ -575,7 +560,7 @@ func (il *interceptorList) InterceptStreamRPC(srv any, ss grpc.ServerStream, inf
 		}
 		i := il.interceptors[idx]
 		idx++
-		return i.InterceptStreamRPC(currSrv, currSS, info, next)
+		return i.InterceptRPC(currSrv, currSS, info, next)
 	}
 	return next(srv, ss)
 }

@@ -138,12 +138,7 @@ type trackingInterceptor struct {
 	basePath string
 }
 
-func (i *trackingInterceptor) InterceptUnaryRPC(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	i.pathCh <- i.basePath
-	return handler(ctx, req)
-}
-
-func (i *trackingInterceptor) InterceptStreamRPC(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+func (i *trackingInterceptor) InterceptRPC(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	i.pathCh <- i.basePath
 	return handler(srv, ss)
 }

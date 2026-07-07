@@ -22,7 +22,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"reflect"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -34,6 +36,7 @@ import (
 	"google.golang.org/grpc/internal/xds/bootstrap"
 	"google.golang.org/grpc/internal/xds/server"
 	"google.golang.org/grpc/internal/xds/xdsclient"
+	"google.golang.org/grpc/metadata"
 )
 
 const serverPrefix = "[xds-server %p] "
@@ -230,6 +233,62 @@ func (s *GRPCServer) GracefulStop() {
 	}
 }
 
+type unaryServerStreamAdapter struct {
+	grpc.ServerStream
+	ctx      context.Context
+	req      any
+	resp     any
+	recvDone bool
+}
+
+func (s *unaryServerStreamAdapter) Context() context.Context {
+	return s.ctx
+}
+
+func (s *unaryServerStreamAdapter) RecvMsg(m any) error {
+	if s.recvDone {
+		return io.EOF
+	}
+	s.recvDone = true
+
+	src := reflect.ValueOf(s.req)
+	dst := reflect.ValueOf(m)
+	if dst.Kind() != reflect.Ptr || dst.IsNil() {
+		return fmt.Errorf("unaryServerStreamAdapter.RecvMsg: invalid message type %T", m)
+	}
+	dst.Elem().Set(src.Elem())
+	return nil
+}
+
+func (s *unaryServerStreamAdapter) SendMsg(m any) error {
+	s.resp = m
+	return nil
+}
+
+func (s *unaryServerStreamAdapter) SetHeader(md metadata.MD) error {
+	sts := grpc.ServerTransportStreamFromContext(s.ctx)
+	if sts == nil {
+		return fmt.Errorf("unaryServerStreamAdapter: failed to get ServerTransportStream from context")
+	}
+	return sts.SetHeader(md)
+}
+
+func (s *unaryServerStreamAdapter) SendHeader(md metadata.MD) error {
+	sts := grpc.ServerTransportStreamFromContext(s.ctx)
+	if sts == nil {
+		return fmt.Errorf("unaryServerStreamAdapter: failed to get ServerTransportStream from context")
+	}
+	return sts.SendHeader(md)
+}
+
+func (s *unaryServerStreamAdapter) SetTrailer(md metadata.MD) {
+	sts := grpc.ServerTransportStreamFromContext(s.ctx)
+	if sts == nil {
+		return
+	}
+	sts.SetTrailer(md)
+}
+
 // xdsUnaryInterceptor is the unary interceptor added to the gRPC server to
 // perform any xDS specific functionality on unary RPCs.
 func xdsUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
@@ -240,7 +299,28 @@ func xdsUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInf
 	if interceptor == nil {
 		return handler(ctx, req)
 	}
-	return interceptor.InterceptUnaryRPC(ctx, req, info, handler)
+	adapter := &unaryServerStreamAdapter{
+		ctx: ctx,
+		req: req,
+	}
+	streamInfo := &grpc.StreamServerInfo{
+		FullMethod:     info.FullMethod,
+		IsClientStream: false,
+		IsServerStream: false,
+	}
+	streamHandler := func(srv any, ss grpc.ServerStream) error {
+		var err error
+		resp, err = handler(ss.Context(), req)
+		return err
+	}
+	err = interceptor.InterceptRPC(info.Server, adapter, streamInfo, streamHandler)
+	if err != nil {
+		return nil, err
+	}
+	if adapter.resp != nil {
+		return adapter.resp, nil
+	}
+	return resp, nil
 }
 
 // xdsStreamInterceptor is the stream interceptor added to the gRPC server to
@@ -253,5 +333,5 @@ func xdsStreamInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServer
 	if interceptor == nil {
 		return handler(srv, ss)
 	}
-	return interceptor.InterceptStreamRPC(srv, ss, info, handler)
+	return interceptor.InterceptRPC(srv, ss, info, handler)
 }

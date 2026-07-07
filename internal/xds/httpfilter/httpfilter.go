@@ -120,11 +120,8 @@ type ServerFilterBuilder interface {
 
 // ServerInterceptor is an interceptor for incoming RPCs on gRPC server side.
 type ServerInterceptor interface {
-	// InterceptUnaryRPC intercepts the execution of a unary RPC on the server.
-	InterceptUnaryRPC(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error)
-
-	// InterceptStreamRPC intercepts the execution of a streaming RPC on the server.
-	InterceptStreamRPC(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error
+	// InterceptRPC intercepts the execution of a unary or streaming RPC on the server.
+	InterceptRPC(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error
 
 	// Close closes the interceptor.
 	Close()

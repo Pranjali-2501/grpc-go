@@ -18,7 +18,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -583,11 +582,7 @@ type serverInterceptor struct {
 	level string
 }
 
-func (si *serverInterceptor) InterceptUnaryRPC(context.Context, any, *grpc.UnaryServerInfo, grpc.UnaryHandler) (any, error) {
-	return nil, errors.New(si.level)
-}
-
-func (si *serverInterceptor) InterceptStreamRPC(any, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
+func (si *serverInterceptor) InterceptRPC(any, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
 	return errors.New(si.level)
 }
 
@@ -703,8 +698,7 @@ func (s) TestHTTPFilterInstantiation(t *testing.T) {
 			wantErrs: []string{topLevel, vhLevel, rLevel},
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
-	defer cancel()
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fc := filterChain{
@@ -731,7 +725,7 @@ func (s) TestHTTPFilterInstantiation(t *testing.T) {
 			var errs []string
 			for _, vh := range urc.vhs {
 				for _, r := range vh.routes {
-					_, err := r.interceptor.InterceptUnaryRPC(ctx, nil, nil, func(context.Context, any) (any, error) { return nil, nil })
+					err := r.interceptor.InterceptRPC(nil, nil, nil, nil)
 					errs = append(errs, err.Error())
 				}
 			}
