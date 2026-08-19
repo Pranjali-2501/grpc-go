@@ -18,7 +18,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -26,8 +25,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/internal/resolver"
 	"google.golang.org/grpc/internal/xds/httpfilter"
 	"google.golang.org/grpc/internal/xds/xdsclient/xdsresource"
 	"google.golang.org/grpc/status"
@@ -209,7 +208,7 @@ type virtualHostWithInterceptors struct {
 type routeWithInterceptors struct {
 	matcher     *xdsresource.CompositeMatcher
 	actionType  xdsresource.RouteActionType
-	interceptor resolver.ServerInterceptor
+	interceptor httpfilter.ServerInterceptor
 }
 
 type lookupParams struct {
@@ -500,9 +499,9 @@ func (rc *usableRouteConfiguration) statusErrWithNodeID(c codes.Code, msg string
 	return status.Error(c, fmt.Sprintf("[xDS node id: %v]: %s", rc.nodeID, fmt.Sprintf(msg, args...)))
 }
 
-func (fc *filterChain) newInterceptor(routeOverride, virtualHostOverride map[string]httpfilter.FilterConfig, provider serverFilterProvider) (_ resolver.ServerInterceptor, _ []httpfilter.ServerFilter, err error) {
+func (fc *filterChain) newInterceptor(routeOverride, virtualHostOverride map[string]httpfilter.FilterConfig, provider serverFilterProvider) (_ httpfilter.ServerInterceptor, _ []httpfilter.ServerFilter, err error) {
 	serverFilters := []httpfilter.ServerFilter{}
-	interceptors := make([]resolver.ServerInterceptor, 0, len(fc.httpFilters))
+	interceptors := make([]httpfilter.ServerInterceptor, 0, len(fc.httpFilters))
 	defer func() {
 		if err != nil {
 			for _, sf := range serverFilters {
@@ -549,16 +548,21 @@ func (fc *filterChain) newInterceptor(routeOverride, virtualHostOverride map[str
 }
 
 type interceptorList struct {
-	interceptors []resolver.ServerInterceptor
+	interceptors []httpfilter.ServerInterceptor
 }
 
-func (il *interceptorList) AllowRPC(ctx context.Context) error {
-	for _, i := range il.interceptors {
-		if err := i.AllowRPC(ctx); err != nil {
-			return err
+func (il *interceptorList) InterceptRPC(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	idx := 0
+	var next grpc.StreamHandler
+	next = func(currSrv any, currSS grpc.ServerStream) error {
+		if idx >= len(il.interceptors) {
+			return handler(currSrv, currSS)
 		}
+		i := il.interceptors[idx]
+		idx++
+		return i.InterceptRPC(currSrv, currSS, info, next)
 	}
-	return nil
+	return next(srv, ss)
 }
 
 func (il *interceptorList) Close() {
