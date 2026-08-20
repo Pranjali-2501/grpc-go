@@ -232,18 +232,26 @@ func (s *GRPCServer) GracefulStop() {
 
 // xdsUnaryInterceptor is the unary interceptor added to the gRPC server to
 // perform any xDS specific functionality on unary RPCs.
-func xdsUnaryInterceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-	if err := server.RouteAndProcess(ctx); err != nil {
+func xdsUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+	interceptor, err := server.RouteAndGetInterceptor(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return handler(ctx, req)
+	if interceptor == nil {
+		return handler(ctx, req)
+	}
+	return interceptor.InterceptUnaryRPC(ctx, req, info, handler)
 }
 
 // xdsStreamInterceptor is the stream interceptor added to the gRPC server to
 // perform any xDS specific functionality on streaming RPCs.
-func xdsStreamInterceptor(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if err := server.RouteAndProcess(ss.Context()); err != nil {
+func xdsStreamInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	interceptor, err := server.RouteAndGetInterceptor(ss.Context())
+	if err != nil {
 		return err
 	}
-	return handler(srv, ss)
+	if interceptor == nil {
+		return handler(srv, ss)
+	}
+	return interceptor.InterceptStreamRPC(srv, ss, info, handler)
 }
