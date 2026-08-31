@@ -27,6 +27,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/internal"
 	"google.golang.org/grpc/internal/envconfig"
 	"google.golang.org/grpc/internal/stubserver"
 	"google.golang.org/grpc/internal/testutils"
@@ -482,5 +483,94 @@ func (s) TestInterceptorSegregation(t *testing.T) {
 	}
 	if !streamCalled.Load() {
 		t.Error("Stream interceptor was not called for Streaming RPC")
+	}
+}
+
+type wrappedTestStream struct {
+	grpc.ServerStream
+}
+
+// Test verifies that an internal xDS filter wrapper option configured on the
+// server gets invoked and can wrap the ServerStream for both Unary and
+// Streaming RPCs.
+func (s) TestXDSFilterWrapperOption(t *testing.T) {
+	var wrapperCalled atomic.Bool
+	wrapper := func(ss grpc.ServerStream) (grpc.ServerStream, error) {
+		wrapperCalled.Store(true)
+		return &wrappedTestStream{ServerStream: ss}, nil
+	}
+
+	opt := internal.XDSFilterWrapperOption.(func(func(grpc.ServerStream) (grpc.ServerStream, error)) grpc.ServerOption)(wrapper)
+
+	ss := &stubserver.StubServer{
+		EmptyCallF: func(context.Context, *testpb.Empty) (*testpb.Empty, error) {
+			return &testpb.Empty{}, nil
+		},
+		FullDuplexCallF: func(testgrpc.TestService_FullDuplexCallServer) error {
+			return nil
+		},
+	}
+	if err := ss.Start([]grpc.ServerOption{opt}); err != nil {
+		t.Fatalf("Error starting endpoint server: %v", err)
+	}
+	defer ss.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+	defer cancel()
+	if _, err := ss.Client.EmptyCall(ctx, &testpb.Empty{}); err != nil {
+		t.Fatalf("EmptyCall failed: %v", err)
+	}
+	if !wrapperCalled.Load() {
+		t.Fatal("XDSFilterWrapperOption callback was not called for Unary RPC")
+	}
+
+	wrapperCalled.Store(false)
+	stream, err := ss.Client.FullDuplexCall(ctx)
+	if err != nil {
+		t.Fatalf("FullDuplexCall failed: %v", err)
+	}
+	if _, err = stream.Recv(); err != io.EOF {
+		t.Fatalf("Recv failed: %v", err)
+	}
+	if !wrapperCalled.Load() {
+		t.Fatal("XDSFilterWrapperOption callback was not called for Streaming RPC")
+	}
+}
+
+// Test verifies that if an internal xDS filter wrapper returns an error,
+// the RPC is rejected early with that status error before executing
+// handlers.
+func (s) TestXDSFilterWrapperOption_EarlyRejection(t *testing.T) {
+	wrapper := func(grpc.ServerStream) (grpc.ServerStream, error) {
+		return nil, status.Error(codes.PermissionDenied, "early rejection by internal wrapper")
+	}
+
+	opt := internal.XDSFilterWrapperOption.(func(func(grpc.ServerStream) (grpc.ServerStream, error)) grpc.ServerOption)(wrapper)
+
+	ss := &stubserver.StubServer{
+		EmptyCallF: func(context.Context, *testpb.Empty) (*testpb.Empty, error) {
+			return &testpb.Empty{}, nil
+		},
+		FullDuplexCallF: func(testgrpc.TestService_FullDuplexCallServer) error {
+			return nil
+		},
+	}
+	if err := ss.Start([]grpc.ServerOption{opt}); err != nil {
+		t.Fatalf("Error starting endpoint server: %v", err)
+	}
+	defer ss.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTestTimeout)
+	defer cancel()
+	if _, err := ss.Client.EmptyCall(ctx, &testpb.Empty{}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("EmptyCall failed with error %v; want PermissionDenied", err)
+	}
+
+	stream, err := ss.Client.FullDuplexCall(ctx)
+	if err != nil {
+		t.Fatalf("FullDuplexCall failed: %v", err)
+	}
+	if _, err = stream.Recv(); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stream.Recv() got error %v; want PermissionDenied", err)
 	}
 }
