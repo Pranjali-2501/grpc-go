@@ -105,6 +105,7 @@ func startTestAuthServer(t *testing.T, checkFunc func(context.Context, *v3authpb
 	t.Helper()
 
 	testutils.SetEnvConfig(t, &envconfig.XDSClientExtAuthzEnabled, true)
+	testutils.SetEnvConfig(t, &envconfig.XDSServerExtAuthzEnabled, true)
 	iextauthz.RegisterForTesting()
 
 	t.Cleanup(func() {
@@ -115,9 +116,8 @@ func startTestAuthServer(t *testing.T, checkFunc func(context.Context, *v3authpb
 	if err != nil {
 		t.Fatalf("LocalTCPListener() failed: %v", err)
 	}
-	authServer := &testExtAuthzServer{checkFunc: checkFunc}
 	gs := grpc.NewServer()
-	v3authgrpc.RegisterAuthorizationServer(gs, authServer)
+	v3authgrpc.RegisterAuthorizationServer(gs, &testExtAuthzServer{checkFunc: checkFunc})
 	go gs.Serve(lis)
 
 	t.Cleanup(gs.Stop)
