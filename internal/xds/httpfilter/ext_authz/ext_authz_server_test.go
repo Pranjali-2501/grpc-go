@@ -38,9 +38,6 @@ type testServerStream struct {
 }
 
 func (s *testServerStream) Context() context.Context {
-	if s.ctx == nil {
-		return context.Background()
-	}
 	return s.ctx
 }
 

@@ -913,7 +913,7 @@ func (i *serverInterceptor) InterceptRPC(ss grpc.ServerStream) (grpc.ServerStrea
 		// will add a x-envoy-auth-failure-mode-allowed: true header to the data
 		// plane RPC.
 		appendFailureModeHeader(incomingMD, i.config.failureModeAllowHeaderAdd)
-		return newWrappedServerStream(ss, metadata.NewIncomingContext(ctx, incomingMD), nil), nil
+		return newWrappedServerStream(metadata.NewIncomingContext(ctx, incomingMD), ss, nil), nil
 	}
 
 	// When the external authorization server denies the RPC, we terminate the
@@ -938,7 +938,7 @@ func (i *serverInterceptor) InterceptRPC(ss grpc.ServerStream) (grpc.ServerStrea
 					return nil, status.Errorf(i.config.statusOnError, "extauthz: error applying header mutation rules on denied response: %v", err)
 				}
 				appendFailureModeHeader(incomingMD, i.config.failureModeAllowHeaderAdd)
-				return newWrappedServerStream(ss, metadata.NewIncomingContext(ctx, incomingMD), nil), nil
+				return newWrappedServerStream(metadata.NewIncomingContext(ctx, incomingMD), ss, nil), nil
 			}
 			ss.SetTrailer(trailers)
 		}
@@ -972,7 +972,7 @@ func (i *serverInterceptor) InterceptRPC(ss grpc.ServerStream) (grpc.ServerStrea
 		}
 		// Return a wrapped server stream with mutated incoming metadata and
 		// lazy response header injection for subsequent handlers.
-		return newWrappedServerStream(ss, metadata.NewIncomingContext(ctx, incomingMD), responseHeaders), nil
+		return newWrappedServerStream(metadata.NewIncomingContext(ctx, incomingMD), ss, responseHeaders), nil
 	}
 
 	// If the response does not contain an OkResponse message despite having
@@ -1045,7 +1045,7 @@ func (w *wrappedServerStream) SendMsg(m any) error {
 // stream, context, and response headers to apply. If a ServerTransportStream
 // is present in the incoming context, it is wrapped so that unary RPC handlers
 // calling grpc.SendHeader will also trigger ext_authz response header mutations.
-func newWrappedServerStream(ss grpc.ServerStream, ctx context.Context, responseHeaders metadata.MD) *wrappedServerStream {
+func newWrappedServerStream(ctx context.Context, ss grpc.ServerStream, responseHeaders metadata.MD) *wrappedServerStream {
 	w := &wrappedServerStream{
 		ServerStream:    ss,
 		responseHeaders: responseHeaders,
